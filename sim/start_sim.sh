@@ -10,13 +10,16 @@ IMAGE_TOPIC="${IMAGE_TOPIC:-/front_stereo_camera/left/image_raw}"
 READY_TIMEOUT_SECONDS="${READY_TIMEOUT_SECONDS:-420}"
 OPEN_VIEWER=true
 DRIVE_ROBOT=true
+START_NAVIGATION=false
 
 usage() {
     cat <<'EOF'
-Usage: ./start_sim.sh [--no-viewer] [--no-drive]
+Usage: ./start_sim.sh [--no-viewer] [--no-drive] [--navigation]
 
 Starts the Isaac Sim Nova Carter stereo-camera sample, Isaac ROS Visual SLAM,
 and, by default, rqt_image_view plus a slow forward-and-turning robot motion.
+Use --navigation to launch nvblox and Nav2. Navigation uses Visual SLAM pose
+and Isaac Sim LiDAR, and disables the automatic robot motion.
 
 Environment overrides:
   ISAAC_ROS_WS          Isaac ROS workspace (default: ~/workspaces/isaac_ros-dev)
@@ -30,6 +33,7 @@ for argument in "$@"; do
     case "${argument}" in
         --no-viewer) OPEN_VIEWER=false ;;
         --no-drive) DRIVE_ROBOT=false ;;
+        --navigation) START_NAVIGATION=true; DRIVE_ROBOT=false ;;
         --help|-h) usage; exit 0 ;;
         *) usage >&2; exit 2 ;;
     esac
@@ -66,10 +70,11 @@ SIM_PID=""
 SLAM_PID=""
 VIEWER_PID=""
 DRIVE_PID=""
+NAVIGATION_PID=""
 
 cleanup() {
     trap - EXIT INT TERM
-    for pid in "${DRIVE_PID}" "${VIEWER_PID}" "${SLAM_PID}" "${SIM_PID}"; do
+    for pid in "${DRIVE_PID}" "${VIEWER_PID}" "${NAVIGATION_PID}" "${SLAM_PID}" "${SIM_PID}"; do
         if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
             kill "${pid}" 2>/dev/null || true
         fi
@@ -105,6 +110,17 @@ ros2 launch "${SIM_DIR}/skillforge_slam.launch.py" \
     >"${LOG_DIR}/visual-slam.log" 2>&1 &
 SLAM_PID=$!
 
+if [[ "${START_NAVIGATION}" == true ]]; then
+    if ! ros2 pkg prefix nav2_bringup >/dev/null 2>&1 || ! ros2 pkg prefix nvblox_ros >/dev/null 2>&1; then
+        printf 'Navigation dependencies are missing. Install: sudo apt-get install -y ros-jazzy-nav2-bringup ros-jazzy-isaac-ros-nvblox\n' >&2
+        exit 1
+    fi
+    printf 'Starting nvblox and Nav2 with Visual SLAM localization...\n'
+    ros2 launch "${SIM_DIR}/skillforge_navigation.launch.py" \
+        >"${LOG_DIR}/navigation.log" 2>&1 &
+    NAVIGATION_PID=$!
+fi
+
 if [[ "${DRIVE_ROBOT}" == true ]]; then
     printf 'Moving the Carter robot with /cmd_vel. Use --no-drive to disable this.\n'
     ros2 topic pub --rate 10 /cmd_vel geometry_msgs/msg/Twist \
@@ -123,7 +139,10 @@ if [[ "${OPEN_VIEWER}" == true ]]; then
     fi
 fi
 
-printf '\nSimulation, SLAM, robot motion, and video are running. Press Ctrl-C here to stop them.\n'
+printf '\nSimulation, SLAM, robot motion, navigation, and video are running. Press Ctrl-C here to stop them.\n'
 printf 'ROS image: %s\nROS SLAM pose: /visual_slam/tracking/odometry\nLogs: %s\n' "${IMAGE_TOPIC}" "${LOG_DIR}"
+if [[ "${START_NAVIGATION}" == true ]]; then
+    printf 'Send goals in RViz or with the /navigate_to_pose action.\n'
+fi
 
 wait "${SIM_PID}"
