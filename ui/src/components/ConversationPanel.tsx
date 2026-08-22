@@ -13,13 +13,17 @@ interface Props {
   onRetry?: () => void;
 }
 
-// Chosen to each exercise a different corner of the mock's keyword parser —
-// pick, rotate+place, and a combined grab-and-place chain — so the empty
-// state doubles as a quick tour of what the robot can do.
+// Matched to what the robot can actually do: Nav2 mobile-base tools plus the
+// semantic perception tools. The old arm/gripper prompts came from SPEC.md
+// and were never backed by real tools — the agent would decline them.
+//
+// The first is read-only on purpose, so the safest prompt is also the most
+// obvious one to click during a demo; the others show the warehouse
+// inspection story end to end.
 const SUGGESTIONS = [
-  "Move to the table and pick up the blue box.",
-  "Rotate 90 degrees, then place it in the bin.",
-  "Grab the red block and set it down on the table.",
+  "Where is the robot right now?",
+  "Explore the warehouse and tell me what you see.",
+  "Search for damaged boxes and record what you find.",
 ];
 
 export function ConversationPanel({
