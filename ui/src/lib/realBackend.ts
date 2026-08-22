@@ -1,60 +1,145 @@
 /**
- * Real OpenClaw Gateway backend.
+ * Real OpenClaw Gateway backend — device-paired auth.
  *
- * Implements `Backend` against the actual Gateway WebSocket protocol (v4),
- * reverse-derived from the public `@openclaw/gateway-protocol` source
- * (github.com/openclaw/openclaw, packages/gateway-protocol/src). The published
- * `@openclaw/gateway-client` package's real `GatewayClient` class (checked
- * directly against its .d.mts) only exposes `start()`/`stop()`/`request()` —
- * no `connect()`/`sendMessage()` as team examples suggested — and still wants
- * a hand-supplied `createSocket` for browser use, so a small hand-rolled
- * client is not a shortcut here, it's the same shape the real one asks for.
- * The wire shapes below (connect handshake, req/res/event envelopes,
- * chat.send/chat.abort, the "chat" event union) come from that protocol
- * source, not guesses — confirmed live against the real gateway, which
- * understood our "connect" frame and returned a real protocol-level
- * rejection (origin allowlist) rather than a parse error.
+ * Earlier version hand-rolled the WebSocket envelope for plain shared-token
+ * auth, which worked but only ever granted a default/reduced scope. Getting
+ * `operator.write` requires a genuine device-paired connection: the gateway
+ * pushes a `connect.challenge` event (a server-issued nonce + timestamp)
+ * that must be Ed25519-signed by a stable per-browser device identity, and
+ * approved once via `openclaw devices approve` on the workstation.
+ *
+ * That handshake — wait for the challenge, sign it, retry/backoff policy —
+ * is exactly what `GatewayProtocolClient` from `@openclaw/gateway-client/
+ * browser` already implements correctly, so this uses the real class
+ * instead of re-deriving that state machine by hand. `GatewayClient` (the
+ * friendly all-in-one wrapper) is NOT used here: it only ships from the
+ * package's main entry, which depends on Node's `ws`/`node:crypto` and does
+ * not bundle for a browser target.
+ *
+ * All shapes below (ConnectParams, the challenge event, ChatEventSchema) are
+ * taken directly from the OpenClaw source (github.com/openclaw/openclaw,
+ * packages/gateway-protocol and packages/gateway-client), not guessed.
  *
  * TOOL INTEGRATION IS DELIBERATELY NOT IMPLEMENTED YET. The real robot
  * control is Nav2-based (navigate_to_pose, spin_robot, dock_robot, etc. via
  * nav2_mcp_server) plus not-yet-built semantic actions (explore_area,
  * search_for, inspect...) — NOT the move/rotate/move_arm/gripper vocabulary
  * this UI's RobotAction type currently models. That type will need reworking
- * once the team locks the semantic-action schema; don't build tool-event
- * handling against the old vocabulary in the meantime.
+ * once the team locks the semantic-action schema.
  */
 
+import {
+  DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS,
+  GatewayBrowserDeviceAuthLifecycle,
+  GatewayProtocolClient,
+  type GatewayBrowserDeviceAuthPlan,
+  type GatewayProtocolSocket,
+  type GatewayProtocolSocketHandlers,
+  PROTOCOL_VERSION,
+} from "@openclaw/gateway-client/browser";
+import { loadDeviceIdentity } from "./deviceIdentity";
+import { deviceTokenStore } from "./deviceTokenStore";
 import type { Backend, BackendEvent } from "./types";
 
-const PROTOCOL_VERSION = 4;
-
 // Confirmed working by the OpenClaw teammate: the only configured agent is
-// "main", and its session key is this fixed string — no sessions.create
-// round trip needed before chat.send.
+// "main", and its session key is this fixed string.
 const SESSION_KEY = "agent:main:main";
 
-const uuid = () => crypto.randomUUID();
+const CLIENT = {
+  id: "webchat-ui",
+  version: "0.1.0",
+  platform: "web",
+  mode: "webchat",
+} as const;
 
-type PendingCall = { resolve: (payload: unknown) => void; reject: (err: Error) => void };
+const DEFAULT_SCOPES = ["operator.read", "operator.write"] as const;
+
+function createBrowserSocket(url: string, handlers: GatewayProtocolSocketHandlers): GatewayProtocolSocket {
+  const ws = new WebSocket(url);
+  ws.addEventListener("open", () => handlers.open());
+  ws.addEventListener("message", (ev) => handlers.message(String(ev.data)));
+  ws.addEventListener("close", (ev) => handlers.close(ev.code, ev.reason));
+  ws.addEventListener("error", () => handlers.error(new Error("WebSocket error")));
+  return {
+    isOpen: () => ws.readyState === WebSocket.OPEN,
+    send: (data) => ws.send(data),
+    // The library closes with protocol-level codes (e.g. 1008 "policy
+    // violation") that are legal on a CloseEvent received from a server but
+    // rejected by the browser's own WebSocket.close() API, which only
+    // accepts 1000 or 3000-4999 from script. Fall back to a codeless close
+    // rather than letting that throw and crash the reconnect flow.
+    close: (code, reason) => {
+      try {
+        ws.close(code, reason);
+      } catch {
+        ws.close();
+      }
+    },
+  };
+}
 
 export function createRealBackend(url: string, token: string): Backend {
-  let ws: WebSocket | null = null;
   let emit: ((e: BackendEvent) => void) | null = null;
   let activeRunId: string | null = null;
   let activeMessageId: string | null = null;
-  const pending = new Map<string, PendingCall>();
 
-  function sendFrame(frame: Record<string, unknown>) {
-    ws?.send(JSON.stringify(frame));
-  }
+  const lifecycle = new GatewayBrowserDeviceAuthLifecycle({
+    loadIdentity: loadDeviceIdentity,
+    tokenStore: deviceTokenStore,
+  });
 
-  function call(method: string, params?: unknown): Promise<unknown> {
-    return new Promise((resolve, reject) => {
-      const id = uuid();
-      pending.set(id, { resolve, reject });
-      sendFrame({ type: "req", id, method, params });
-    });
-  }
+  const client = new GatewayProtocolClient<GatewayBrowserDeviceAuthPlan>({
+    createSocket: (handlers) => createBrowserSocket(url, handlers),
+    createRequestId: () => crypto.randomUUID(),
+    requestTimeoutMs: DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS,
+    reconnect: { initialMs: 500, maxMs: 10_000, multiplier: 2 },
+    // "fallback": if the gateway doesn't push connect.challenge within
+    // timeoutMs, proceed without a nonce rather than hanging forever. A
+    // genuine device-paired connect still requires the real nonce to
+    // produce a valid signature — this only affects how we fail, not
+    // whether unsigned connects are accepted.
+    handshake: { mode: "fallback", timeoutMs: 4000 },
+
+    buildConnectPlan: ({ nonce, challengeTs }) =>
+      lifecycle.buildPlan({
+        client: CLIENT,
+        role: "operator",
+        defaultScopes: DEFAULT_SCOPES,
+        token,
+        nonce,
+        challengeTs,
+      }),
+
+    buildConnectParams: (plan) => ({
+      minProtocol: PROTOCOL_VERSION,
+      maxProtocol: PROTOCOL_VERSION,
+      client: CLIENT,
+      role: plan.role,
+      scopes: plan.scopes,
+      device: plan.device,
+      auth: plan.auth,
+    }),
+
+    onConnectHello: (hello, context) => {
+      void lifecycle.acceptHello(hello, context.plan);
+    },
+    onHello: () => emit?.({ type: "connection", connected: true }),
+    onConnectError: (err) => emit?.({ type: "error", message: `Gateway connect failed: ${err.message}` }),
+    onConnectFailure: (err) => {
+      emit?.({ type: "error", message: `Gateway rejected connection: ${err.message}` });
+      return { closeCode: 1008, closeReason: "connect failed" };
+    },
+    resolveClose: () => ({ retry: true, notify: true }),
+    onClose: () => emit?.({ type: "connection", connected: false }),
+
+    onEvent: (frame) => {
+      if (frame.event === "chat") {
+        handleChatEvent(frame.payload as Record<string, unknown>);
+      }
+    },
+    onParseError: (err) => console.error("gateway frame parse error", err),
+    onCallbackError: (label, err) => console.error(`gateway callback error (${label})`, err),
+  });
 
   // Maps the ChatEventSchema union (state: status | delta | final | aborted |
   // error) onto our BackendEvent contract. See file header re: tool events.
@@ -71,7 +156,7 @@ export function createRealBackend(url: string, token: string): Backend {
       case "delta": {
         if (activeRunId !== runId) {
           activeRunId = runId ?? null;
-          activeMessageId = runId ?? uuid();
+          activeMessageId = runId ?? crypto.randomUUID();
           emit({ type: "assistant_start", id: activeMessageId });
         }
         emit({
@@ -105,9 +190,7 @@ export function createRealBackend(url: string, token: string): Backend {
     }
 
     // TOOL-INTEGRATION-TODO: session.tool / tools.invoke events carry the
-    // robot actions once the team's tool schema is defined. Nothing to parse
-    // yet, so `action` events never fire against the real backend — the
-    // status/action panel will simply stay at "—" until this lands.
+    // robot actions once the team's tool schema is defined.
   }
 
   return {
@@ -115,82 +198,21 @@ export function createRealBackend(url: string, token: string): Backend {
 
     connect(onEvent) {
       emit = onEvent;
-      const socket = new WebSocket(url);
-      ws = socket;
-
-      socket.addEventListener("open", () => {
-        call("connect", {
-          minProtocol: PROTOCOL_VERSION,
-          maxProtocol: PROTOCOL_VERSION,
-          client: {
-            id: "webchat-ui",
-            version: "0.1.0",
-            platform: "web",
-            mode: "webchat",
-          },
-          auth: { token },
-        })
-          .then(() => emit?.({ type: "connection", connected: true }))
-          .catch((err: Error) =>
-            // Relay the gateway's own message verbatim — it already names the
-            // exact fix (origin allowlist, device approval, etc.) more
-            // precisely than any guess we could prepend here.
-            emit?.({ type: "error", message: `Gateway rejected connection: ${err.message}` })
-          );
-      });
-
-      socket.addEventListener("close", () => emit?.({ type: "connection", connected: false }));
-      socket.addEventListener("error", () =>
-        emit?.({ type: "error", message: "Gateway WebSocket error." })
-      );
-
-      socket.addEventListener("message", (ev) => {
-        let frame: Record<string, unknown>;
-        try {
-          frame = JSON.parse(ev.data as string);
-        } catch {
-          return;
-        }
-
-        if (frame.type === "res") {
-          const id = frame.id as string;
-          const waiter = pending.get(id);
-          if (!waiter) return;
-          pending.delete(id);
-          if (frame.ok) {
-            waiter.resolve(frame.payload);
-          } else {
-            const error = frame.error as { message?: string } | undefined;
-            waiter.reject(new Error(error?.message ?? "Gateway request failed."));
-          }
-          return;
-        }
-
-        if (frame.type === "event" && frame.event === "chat") {
-          handleChatEvent(frame.payload as Record<string, unknown>);
-        }
-      });
-
+      client.start();
       return () => {
-        pending.clear();
-        socket.close();
-        ws = null;
+        client.stop();
         emit = null;
       };
     },
 
     sendInstruction(text) {
-      void call("chat.send", {
-        sessionKey: SESSION_KEY,
-        message: text,
-        idempotencyKey: uuid(),
-      }).catch((err: Error) => {
-        emit?.({ type: "error", message: err.message });
-      });
+      void client
+        .request("chat.send", { sessionKey: SESSION_KEY, message: text, idempotencyKey: crypto.randomUUID() })
+        .catch((err: Error) => emit?.({ type: "error", message: err.message }));
     },
 
     abort() {
-      void call("chat.abort", { sessionKey: SESSION_KEY }).catch(() => {
+      void client.request("chat.abort", { sessionKey: SESSION_KEY }).catch(() => {
         // Best effort — an abort failing is not itself worth surfacing.
       });
     },
