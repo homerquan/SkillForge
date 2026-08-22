@@ -13,7 +13,12 @@ from std_msgs.msg import String
 
 
 # Replace these map-frame coordinates with surveyed scene locations as needed.
-LOCATIONS = {"home": (0.0, 0.0), "table": (3.0, 0.0), "warehouse": (6.0, 0.0)}
+LOCATIONS = {
+    "home": (0.0, 0.0),
+    "table": (3.0, 0.0),
+    "warehouse": (6.0, 0.0),
+    "warehouse aisle": (6.0, 0.0),
+}
 
 
 class SkillForgeTaskBridge(Node):
@@ -65,7 +70,11 @@ class SkillForgeTaskBridge(Node):
         self.get_logger().info(f"Published semantic task intent: {message.data}")
 
     def _navigate(self, location):
-        if not isinstance(location, str) or location not in LOCATIONS:
+        if not isinstance(location, str):
+            self.get_logger().warning(f"Unknown navigation location: {location}")
+            return
+        location = " ".join(location.lower().split())
+        if location not in LOCATIONS:
             self.get_logger().warning(f"Unknown navigation location: {location}")
             return
         if not self._navigation.wait_for_server(timeout_sec=1.0):

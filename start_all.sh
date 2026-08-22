@@ -19,8 +19,7 @@ if [[ ! -f /opt/ros/jazzy/setup.bash || ! -f "${WORKSPACE}/install/setup.bash" ]
 fi
 
 if ! mongosh "${MONGODB_URI:-mongodb://127.0.0.1:27017/skillforge}" --quiet --eval "db.runCommand({ ping: 1 })" >/dev/null 2>&1; then
-    printf 'MongoDB is not available. Start it first: sudo systemctl start mongod\n' >&2
-    exit 1
+    printf 'MongoDB is unavailable. The UI will show Knowledge: Offline; start it with: sudo systemctl start mongod\n' >&2
 fi
 
 source /opt/ros/jazzy/setup.bash
@@ -33,7 +32,8 @@ cleanup() {
         kill -- "-${pid}" 2>/dev/null || true
     done
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT TERM
 
 start() {
     setsid "$@" &
@@ -52,19 +52,29 @@ wait_for_camera() {
 }
 
 printf 'Starting Isaac Sim and Visual SLAM...\n'
-start "${ROOT_DIR}/sim/start_sim.sh" --no-viewer --no-drive
+start "${ROOT_DIR}/sim/start_sim.sh" --no-viewer --no-drive --headless
 wait_for_camera
 
 printf 'Starting Nav2, OpenClaw ROS task bridge, and MJPEG video...\n'
 start ros2 launch "${ROOT_DIR}/sim/skillforge_navigation.launch.py"
+start python3 "${ROOT_DIR}/sim/autonomous_navigation.py"
 start python3 "${ROOT_DIR}/sim/skillforge_task_bridge.py"
-start "${ROOT_DIR}/sim/start_streaming_ros_video.sh"
+if curl -fsSI --max-time 3 "http://127.0.0.1:${CAMERA_PORT}/snapshot?topic=${IMAGE_TOPIC}" >/dev/null 2>&1; then
+    printf 'Reusing existing ROS video gateway on port %s.\n' "${CAMERA_PORT}"
+else
+    # A prior gateway can keep its socket while losing the old DDS graph.
+    # Reclaim only this configured port before starting a fresh ROS video node.
+    printf 'Replacing stale ROS video gateway on port %s.\n' "${CAMERA_PORT}"
+    fuser -k "${CAMERA_PORT}/tcp" >/dev/null 2>&1 || true
+    sleep 1
+    start "${ROOT_DIR}/sim/start_streaming_ros_video.sh"
+fi
 
 export SKILLFORGE_BRIDGE_PORT="${BRIDGE_PORT}"
 export SKILLFORGE_BRIDGE_HOST="0.0.0.0"
 export SKILLFORGE_UI_PORT="${UI_PORT}"
 export VITE_SKILLFORGE_BRIDGE_URL="http://${LAN_IP}:${BRIDGE_PORT}"
-export VITE_CAMERA_URL="http://${LAN_IP}:${CAMERA_PORT}/stream?topic=${IMAGE_TOPIC}&type=mjpeg&width=960&height=600&quality=80"
+export VITE_CAMERA_URL="http://${LAN_IP}:${CAMERA_PORT}/snapshot?topic=${IMAGE_TOPIC}"
 
 printf 'Starting OpenClaw bridge and web UI...\n'
 start npm --prefix "${ROOT_DIR}/ui" run bridge

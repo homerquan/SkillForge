@@ -11,15 +11,17 @@ READY_TIMEOUT_SECONDS="${READY_TIMEOUT_SECONDS:-420}"
 OPEN_VIEWER=true
 DRIVE_ROBOT=true
 START_NAVIGATION=false
+HEADLESS=false
 
 usage() {
     cat <<'EOF'
-Usage: ./start_sim.sh [--no-viewer] [--no-drive] [--navigation]
+Usage: ./start_sim.sh [--no-viewer] [--no-drive] [--navigation] [--headless]
 
 Starts the Isaac Sim Nova Carter stereo-camera sample, Isaac ROS Visual SLAM,
 and, by default, rqt_image_view plus a slow forward-and-turning robot motion.
-Use --navigation to launch nvblox and Nav2. Navigation uses Visual SLAM pose
-and Isaac Sim LiDAR, and disables the automatic robot motion.
+ Use --navigation to launch nvblox and Nav2. Navigation uses Visual SLAM pose
+ and Isaac Sim LiDAR, and disables the automatic robot motion.
+Use --headless to run Isaac Sim without its desktop viewport.
 
 Environment overrides:
   ISAAC_ROS_WS          Isaac ROS workspace (default: ~/workspaces/isaac_ros-dev)
@@ -34,6 +36,7 @@ for argument in "$@"; do
         --no-viewer) OPEN_VIEWER=false ;;
         --no-drive) DRIVE_ROBOT=false ;;
         --navigation) START_NAVIGATION=true; DRIVE_ROBOT=false ;;
+        --headless) HEADLESS=true ;;
         --help|-h) usage; exit 0 ;;
         *) usage >&2; exit 2 ;;
     esac
@@ -86,8 +89,12 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 printf 'Starting Isaac Sim. Logs: %s\n' "${LOG_DIR}"
-setsid "${ISAAC_SIM_ROOT}/python.sh" \
-    "${SIM_DIR}/run_carter_warehouse.py" \
+SIM_ARGS=("${SIM_DIR}/run_carter_warehouse.py")
+if [[ "${HEADLESS}" == true ]]; then
+    SIM_ARGS+=(--headless)
+fi
+
+setsid "${ISAAC_SIM_ROOT}/python.sh" "${SIM_ARGS[@]}" \
     >"${LOG_DIR}/isaac-sim.log" 2>&1 &
 SIM_PID=$!
 

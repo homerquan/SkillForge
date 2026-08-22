@@ -21,6 +21,13 @@ const actionNames = new Set([
   "record_finding", "return_home", "stop_task",
 ]);
 let summarizing = false;
+let probing = false;
+let latestTelemetry = loadingTelemetry();
+
+function loadingTelemetry() {
+  const loading = { state: "loading", detail: "Waiting for bridge probe." };
+  return { ros: loading, camera: loading, navigation: loading, agent: loading, knowledge: loading, updatedAt: new Date().toISOString() };
+}
 
 function run(command, args, timeout = 60_000) {
   return new Promise((resolve, reject) => {
@@ -51,7 +58,29 @@ function send(response, result) {
 function parseJson(text) {
   const match = text.match(/```json\s*([\s\S]*?)```/) ?? text.match(/(\{[\s\S]*\})/);
   if (!match) throw new Error("OpenClaw did not return the required JSON object.");
-  return JSON.parse(match[1]);
+  // The local model can occasionally put a literal newline in a JSON string.
+  // JSON forbids that, but it is safe to encode the control character before
+  // parsing because all non-string content remains unchanged.
+  let normalized = "";
+  let inString = false;
+  let escaped = false;
+  for (const character of match[1]) {
+    if (escaped) {
+      normalized += character;
+      escaped = false;
+    } else if (character === "\\") {
+      normalized += character;
+      escaped = true;
+    } else if (character === "\"") {
+      normalized += character;
+      inString = !inString;
+    } else if (inString && character.charCodeAt(0) < 0x20) {
+      normalized += character === "\n" ? "\\n" : " ";
+    } else {
+      normalized += character;
+    }
+  }
+  return JSON.parse(normalized);
 }
 
 function validActions(actions) {
@@ -93,6 +122,43 @@ async function publishTask(action) {
 function broadcast(type, payload) {
   const event = `event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`;
   for (const response of clients) response.write(event);
+}
+
+async function probeTelemetry() {
+  if (probing) return;
+  probing = true;
+  try {
+    const [rosResult, navigationResult, agentResult, rules] = await Promise.allSettled([
+      run("ros2", ["topic", "list"], 6_000),
+      run("ros2", ["action", "list"], 6_000),
+      run("openclaw", ["health"], 10_000),
+      loadKnowledge(),
+    ]);
+    const topics = rosResult.status === "fulfilled" ? rosResult.value : "";
+    const actions = navigationResult.status === "fulfilled" ? navigationResult.value : "";
+    const rosOnline = rosResult.status === "fulfilled";
+    latestTelemetry = {
+      ros: rosOnline
+        ? { state: "online", detail: "ROS graph is reachable." }
+        : { state: "offline", detail: "ROS graph is unavailable." },
+      camera: rosOnline && topics.includes("/front_stereo_camera/left/image_raw")
+        ? { state: "online", detail: "Front stereo image topic is publishing." }
+        : { state: "offline", detail: "Front stereo image topic was not found." },
+      navigation: rosOnline && actions.includes("/navigate_to_pose")
+        ? { state: "online", detail: "Nav2 NavigateToPose action is available." }
+        : { state: "offline", detail: "Nav2 NavigateToPose action is unavailable." },
+      agent: agentResult.status === "fulfilled"
+        ? { state: "online", detail: "OpenClaw gateway is reachable." }
+        : { state: "offline", detail: "OpenClaw gateway is unavailable." },
+      knowledge: rules.status === "fulfilled" && rules.value !== null
+        ? { state: "online", detail: `${rules.value.length} MongoDB rule${rules.value.length === 1 ? "" : "s"} loaded.` }
+        : { state: "offline", detail: "MongoDB knowledge store is unavailable." },
+      updatedAt: new Date().toISOString(),
+    };
+    broadcast("telemetry", latestTelemetry);
+  } finally {
+    probing = false;
+  }
 }
 
 async function instruct(text) {
@@ -177,6 +243,7 @@ const server = createServer(async (request, response) => {
   if (request.method === "GET" && request.url === "/api/events") {
     response.writeHead(200, { "Access-Control-Allow-Origin": "*", "Cache-Control": "no-cache", Connection: "keep-alive", "Content-Type": "text/event-stream" });
     response.write("retry: 3000\n\n");
+    response.write(`event: telemetry\ndata: ${JSON.stringify(latestTelemetry)}\n\n`);
     clients.add(response);
     request.on("close", () => clients.delete(response));
     return;
@@ -201,4 +268,6 @@ const server = createServer(async (request, response) => {
 
 server.listen(port, host, () => console.log(`SkillForge bridge listening on http://${host}:${port}`));
 setInterval(() => void summarizeScene(), 30_000);
+setInterval(() => void probeTelemetry(), 5_000);
+void probeTelemetry();
 void summarizeScene();

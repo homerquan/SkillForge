@@ -31,9 +31,9 @@ controller_server:
       time_steps: 56
       model_dt: 0.05
       batch_size: 2000
-      vx_max: 0.80
-      vx_min: -0.40
-      wz_max: 1.8
+      vx_max: 2.40
+      vx_min: -1.20
+      wz_max: 2.4
       iteration_count: 1
       prune_distance: 1.7
       transform_tolerance: 0.3
@@ -60,7 +60,7 @@ collision_monitor:
     polygons: [SafeZone]
     SafeZone:
       type: circle
-      radius: 0.35
+      radius: 0.85
       action_type: stop
       min_points: 4
       enabled: true
@@ -136,10 +136,10 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: false
     feedback: OPEN_LOOP
-    max_velocity: [0.80, 0.0, 1.8]
-    min_velocity: [-0.40, 0.0, -1.8]
-    max_accel: [2.0, 0.0, 3.0]
-    max_decel: [-2.0, 0.0, -3.0]
+    max_velocity: [2.40, 0.0, 2.4]
+    min_velocity: [-1.20, 0.0, -2.4]
+    max_accel: [6.0, 0.0, 4.0]
+    max_decel: [-6.0, 0.0, -4.0]
     odom_duration: 0.1
     velocity_timeout: 1.0
 

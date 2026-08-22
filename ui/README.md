@@ -8,7 +8,7 @@ The UI talks to the local bridge over HTTP and receives perception summaries and
 cd ui
 npm run bridge
 VITE_SKILLFORGE_BRIDGE_URL=http://127.0.0.1:8787 \
-VITE_CAMERA_URL='http://10.0.0.167:8080/stream?topic=/front_stereo_camera/left/image_raw&type=mjpeg&width=960&height=600&quality=80' \
+VITE_CAMERA_URL='http://10.0.0.167:8080/snapshot?topic=/front_stereo_camera/left/image_raw' \
 npm run dev
 ```
 

@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { formatAction, type RobotAction, type RobotTelemetry, type RunState, type ServiceState } from "../lib/types";
 
 interface Props {
@@ -31,6 +32,18 @@ export function RobotPanel({
   sceneAlert,
   telemetry,
 }: Props) {
+  const [snapshotSrc, setSnapshotSrc] = useState<string | null>(() =>
+    frame?.includes("/snapshot") ? `${frame}${frame.includes("?") ? "&" : "?"}_=${Date.now()}` : null
+  );
+  const imageSrc = frame?.includes("/snapshot") ? snapshotSrc : frame;
+
+  useEffect(() => {
+    if (!frame?.includes("/snapshot")) return;
+    const refresh = () => setSnapshotSrc(`${frame}${frame.includes("?") ? "&" : "?"}_=${Date.now()}`);
+    const timer = window.setInterval(refresh, 500);
+    return () => window.clearInterval(timer);
+  }, [frame]);
+
   return (
     <section className="panel robot">
       <header className="panel-head">
@@ -41,12 +54,12 @@ export function RobotPanel({
       </header>
 
       <div className="viewport">
-        {frame ? (
-          <img src={frame} alt="Isaac Sim camera" />
+        {imageSrc ? (
+          <img src={imageSrc} alt="Isaac Sim camera" />
         ) : (
           <div className="viewport-empty">waiting for camera…</div>
         )}
-        <span className="feed-tag">isaac-sim · camera_0</span>
+        <span className="feed-tag">isaac-sim · camera_0 · live</span>
       </div>
 
       <dl className="status">
@@ -83,7 +96,7 @@ export function RobotPanel({
 
       <section className={`scene-summary${sceneAlert ? " alert" : ""}`} aria-live="polite">
         <span>Scene summary</span>
-        <p>{sceneSummary ?? "Waiting for the first 30-second perception update."}</p>
+        <p>{sceneSummary ?? "Waiting for response."}</p>
         {sceneAlert && <strong>Alert: {sceneAlert}</strong>}
       </section>
 

@@ -6,75 +6,22 @@ interface Props {
   busy: boolean;
   onSend: (text: string) => void;
   onAbort: () => void;
-  onClear: () => void;
-  /** Set when the run ended in error; renders an inline retry card. */
-  errorMessage?: string | null;
-  /** Resend the instruction that produced errorMessage. */
-  onRetry?: () => void;
 }
 
-// Matched to what the robot can actually do: Nav2 mobile-base tools plus the
-// semantic perception tools. The old arm/gripper prompts came from SPEC.md
-// and were never backed by real tools — the agent would decline them.
-//
-// The first is read-only on purpose, so the safest prompt is also the most
-// obvious one to click during a demo; the others show the warehouse
-// inspection story end to end.
 const SUGGESTIONS = [
-  "Where is the robot right now?",
-  "Explore the warehouse and tell me what you see.",
-  "Search for damaged boxes and record what you find.",
+  "Patrol the warehouse aisle and report what you see.",
+  "Search the warehouse for colorful boxes and inspect them.",
+  "Return home.",
 ];
 
-export function ConversationPanel({
-  messages,
-  busy,
-  onSend,
-  onAbort,
-  onClear,
-  errorMessage,
-  onRetry,
-}: Props) {
+export function ConversationPanel({ messages, busy, onSend, onAbort }: Props) {
   const [draft, setDraft] = useState("");
-  const [copiedId, setCopiedId] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  // Shared by message bubbles and action pills. The "Copied" label reverts
-  // on its own so a click always gets a visible acknowledgement. Falls back
-  // to a hidden-textarea copy where the Clipboard API is unavailable or its
-  // permission is denied (some embedded/sandboxed browser contexts).
-  async function copy(text: string, id: string) {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.select();
-      try {
-        document.execCommand("copy");
-      } catch {
-        // Best effort — nothing more we can do in this context.
-      }
-      document.body.removeChild(ta);
-    }
-    setCopiedId(id);
-    setTimeout(() => setCopiedId((cur) => (cur === id ? null : cur)), 1200);
-  }
 
   // Follow the conversation as it grows, including while text streams in.
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages]);
-
-  // Return focus to the composer once a turn finishes, so a rapid back-and-
-  // forth never needs a mouse click in between.
-  useEffect(() => {
-    if (!busy) inputRef.current?.focus();
-  }, [busy]);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -88,27 +35,20 @@ export function ConversationPanel({
     <section className="panel conversation">
       <header className="panel-head">
         <h2>Conversation</h2>
-        {busy ? (
+        {busy && (
           <button type="button" className="ghost" onClick={onAbort}>
             Stop
           </button>
-        ) : (
-          messages.length > 0 && (
-            <button type="button" className="ghost" onClick={onClear}>
-              Clear
-            </button>
-          )
         )}
       </header>
 
       <div className="messages">
         {messages.length === 0 && (
           <div className="empty">
-            <p className="empty-title">Ready when you are.<br />What should the robot do?</p>
-            <span className="empty-hint">Try one of these:</span>
-            {SUGGESTIONS.map((s) => (
-              <button key={s} type="button" className="suggestion" onClick={() => onSend(s)}>
-                {s}
+            <p>Choose a warehouse task or give the robot an instruction.</p>
+            {SUGGESTIONS.map((suggestion) => (
+              <button key={suggestion} type="button" className="suggestion" onClick={() => onSend(suggestion)}>
+                {suggestion}
               </button>
             ))}
           </div>
@@ -116,66 +56,30 @@ export function ConversationPanel({
 
         {messages.map((m) => (
           <article key={m.id} className={`msg ${m.role}`}>
-            <div className="msg-head">
-              <span className="who">{m.role === "user" ? "You" : "OpenClaw"}</span>
-              {!m.pending && m.text && (
-                <button
-                  type="button"
-                  className="copy-btn"
-                  onClick={() => copy(m.text, m.id)}
-                >
-                  {copiedId === m.id ? "Copied" : "Copy"}
-                </button>
-              )}
-            </div>
+            <span className="who">{m.role === "user" ? "You" : "OpenClaw"}</span>
             <p className="text">
               {m.text}
               {m.pending && <span className="caret" />}
             </p>
             {!!m.actions?.length && (
               <ul className="actions">
-                {m.actions.map((a, i) => {
-                  const actionId = `${m.id}-a${i}`;
-                  return (
-                    <li key={i}>
-                      <button
-                        type="button"
-                        onClick={() => copy(formatAction(a), actionId)}
-                        title="Copy"
-                      >
-                        {copiedId === actionId ? "Copied" : formatAction(a)}
-                      </button>
-                    </li>
-                  );
-                })}
+                {m.actions.map((a, i) => (
+                  <li key={i}>{formatAction(a)}</li>
+                ))}
               </ul>
             )}
           </article>
         ))}
-
-        {errorMessage && (
-          <div className="error-card" role="alert">
-            <p>{errorMessage}</p>
-            {onRetry && (
-              <button type="button" className="ghost" onClick={onRetry}>
-                Retry
-              </button>
-            )}
-          </div>
-        )}
-
         <div ref={endRef} />
       </div>
 
       <form className="composer" onSubmit={submit}>
         <input
-          ref={inputRef}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           placeholder="Type instruction…"
           aria-label="Instruction"
           disabled={busy}
-          autoFocus
         />
         <button type="submit" disabled={busy || !draft.trim()}>
           Send
