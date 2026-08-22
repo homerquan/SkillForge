@@ -2,6 +2,7 @@
   ros__parameters:
     use_sim_time: true
     global_frame: map
+    pose_frame: nova_carter
     voxel_size: 0.10
     num_cameras: 0
     use_tf_transforms: true
@@ -15,13 +16,15 @@
     lidar_min_valid_range_m: 0.10
     use_lidar_motion_compensation: false
     pointcloud2_timestamps_are_relative: false
-    input_qos: DEFAULT
+    input_qos: SENSOR_DATA
     tick_period_ms: 10
     integrate_lidar_rate_hz: 20.0
     update_esdf_rate_hz: 10.0
     publish_layer_rate_hz: 5.0
     map_clearing_radius_m: 15.0
-    map_clearing_frame_id: chassis_link
+    map_clearing_frame_id: nova_carter
+    esdf_slice_bounds_visualization_attachment_frame_id: nova_carter
+    workspace_height_bounds_visualization_attachment_frame_id: nova_carter
     esdf_mode: 2d
     publish_esdf_distance_slice: true
     static_mapper:

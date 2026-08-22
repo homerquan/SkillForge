@@ -1,0 +1,58 @@
+// OpenClaw config: local vLLM connection + tool calling (MCP servers).
+//
+// Apply with:
+//   openclaw config set gateway.mode local
+//   cat openclaw.setup.config.json5 | openclaw config patch --stdin
+//   openclaw models set local-vllm/__MODEL_ID__
+//
+// Placeholders to fill in before applying:
+//   __VLLM_BASE_URL__   e.g. http://127.0.0.1:8000/v1 (localhost if OpenClaw
+//                       runs on the same box as vLLM; LAN IP otherwise)
+//   __MODEL_ID__        e.g. muse-glimmer-30b
+//   __HOME__            absolute path to the user's home dir on that machine
+//                       (used for the MCP server wrapper script paths)
+{
+  models: {
+    mode: "merge",
+    providers: {
+      "local-vllm": {
+        baseUrl: "__VLLM_BASE_URL__",
+        api: "openai-completions",
+        apiKey: "vllm-local",
+        models: [
+          {
+            id: "__MODEL_ID__",
+            name: "Local vLLM model",
+            reasoning: true,
+            params: {
+              temperature: 1.0,
+              top_p: 0.95,
+              top_k: 64,
+            },
+          },
+        ],
+      },
+    },
+  },
+  mcp: {
+    servers: {
+      // Nav2 tools: navigate_to_pose, follow_waypoints, spin_robot,
+      // backup_robot, dock_robot, undock_robot, clear_costmaps,
+      // get_robot_pose, cancel_navigation, nav2_lifecycle, get_path,
+      // get_path_from_robot. Requires ROS2 + Nav2 installed; the wrapper
+      // script sources ROS2's setup.bash before launching.
+      // Repo: github.com/ajtudela/nav2_mcp_server
+      nav2: {
+        command: "__HOME__/nav2_mcp_server/run_mcp.sh",
+      },
+      // Custom semantic-action tools: explore_area, search_for, inspect,
+      // detect_failure, record_finding. Real ROS2 pub/sub (std_msgs/String,
+      // JSON payloads) on the topics from ROS2 Task Mapping.md. Not yet
+      // wired into the live bridge.mjs pipeline as of this writing - see
+      // ROS2 Task Mapping.md and HANDOFF.md for context.
+      perception: {
+        command: "__HOME__/perception_task_mcp/run_mcp.sh",
+      },
+    },
+  },
+}

@@ -17,6 +17,18 @@ def generate_launch_description():
         [
             SetEnvironmentVariable("RCUTILS_LOGGING_BUFFERED_STREAM", "1"),
             SetParameter("use_sim_time", True),
+            # Isaac Sim's 3D LiDAR graph labels point clouds front_3d_lidar,
+            # while the simulated sensor prim is named front_RPLidar.
+            Node(
+                package="tf2_ros",
+                executable="static_transform_publisher",
+                arguments=[
+                    "--frame-id",
+                    "front_RPLidar",
+                    "--child-frame-id",
+                    "front_3d_lidar",
+                ],
+            ),
             Node(
                 package="nvblox_ros",
                 executable="nvblox_node",

@@ -55,7 +55,7 @@ robot_base = "/World/Nova_Carter_ROS/chassis_link"
 sensor_prims = [
     "/World/Nova_Carter_ROS/chassis_link/sensors/front_hawk/left/camera_left",
     "/World/Nova_Carter_ROS/chassis_link/sensors/front_hawk/right/camera_right",
-    "/World/Nova_Carter_ROS/chassis_link/sensors/front_3d_lidar",
+    "/World/Nova_Carter_ROS/chassis_link/sensors/front_RPLidar",
 ]
 stage = omni.usd.get_context().get_stage()
 missing_prims = [path for path in [robot_base, *sensor_prims] if not stage.GetPrimAtPath(path).IsValid()]
@@ -70,6 +70,7 @@ og.Controller.edit(
         og.Controller.Keys.CREATE_NODES: [
             ("OnPlaybackTick", "omni.graph.action.OnPlaybackTick"),
             ("ReadSimTime", "isaacsim.core.nodes.IsaacReadSimulationTime"),
+            ("ROS2Context", "isaacsim.ros2.bridge.ROS2Context"),
             ("ComputeTF", "isaacsim.core.nodes.IsaacComputeTransformTree"),
             ("PublishTF", "isaacsim.ros2.bridge.ROS2PublishTransformTree"),
         ],
@@ -86,13 +87,21 @@ og.Controller.edit(
             ("ComputeTF.outputs:translations", "PublishTF.inputs:translations"),
             ("ComputeTF.outputs:orientations", "PublishTF.inputs:orientations"),
             ("ReadSimTime.outputs:simulationTime", "PublishTF.inputs:timeStamp"),
+            ("ROS2Context.outputs:context", "PublishTF.inputs:context"),
         ],
     },
 )
 
 app_utils.play()
 simulation_app.update()
-print("Simulation running. Publish Twist messages to /cmd_vel to move the Carter robot.")
+print(
+    "Sensor TF frames:",
+    og.Controller.attribute("/SkillForgeSensorTF/ComputeTF.outputs:parentFrames").get(),
+    "->",
+    og.Controller.attribute("/SkillForgeSensorTF/ComputeTF.outputs:childFrames").get(),
+    flush=True,
+)
+print("Simulation running. Publish Twist messages to /cmd_vel to move the Carter robot.", flush=True)
 
 while simulation_app.is_running():
     simulation_app.update()

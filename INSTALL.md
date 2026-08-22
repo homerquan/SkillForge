@@ -22,7 +22,7 @@ Isaac Sim stereo cameras -> Isaac ROS Visual SLAM -> /visual_slam/tracking/odome
 Isaac Sim /cmd_vel       -> Nova Carter motion
 ```
 
-Visual SLAM estimates localization and builds a feature map. Autonomous, collision-aware goal navigation is a separate layer that requires NVIDIA nvblox and Nav2; its installation is documented in [Navigation Dependencies](#navigation-dependencies), but the launch integration is not yet included.
+Visual SLAM estimates localization and builds a feature map. Autonomous, collision-aware goal navigation uses NVIDIA nvblox and Nav2 as documented in [Navigation Dependencies](#navigation-dependencies).
 
 ## 1. Host Prerequisites
 
@@ -302,7 +302,14 @@ sudo apt-get update
 sudo apt-get install -y ros-jazzy-nav2-bringup ros-jazzy-isaac-ros-nvblox
 ```
 
-SkillForge's Isaac Sim scene already publishes `/front_3d_lidar/lidar_points`, which is the intended obstacle sensor for this integration. The Nav2/nvblox launch configuration has not yet been added, so these packages alone do not enable autonomous goals.
+SkillForge's Isaac Sim scene publishes `/front_3d_lidar/lidar_points`, which is the obstacle sensor for this integration. Start Visual SLAM, nvblox, and Nav2 together with:
+
+```bash
+cd ~/SkillForge/sim
+./start_sim.sh --navigation
+```
+
+This disables the demo motion publisher. Visual SLAM supplies the `map -> chassis_link` localization transform, nvblox converts LiDAR into `/nvblox_node/static_map_slice`, and Nav2 sends commands to `/cmd_vel`. In RViz, set the fixed frame to `map` and use the **Nav2 Goal** tool after both `/controller_server` and `/planner_server` report the `active` lifecycle state.
 
 ## Troubleshooting
 

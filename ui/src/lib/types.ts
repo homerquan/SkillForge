@@ -35,11 +35,14 @@ export type ActionName =
   | "undock_robot"
   | "cancel_navigation"
   // Semantic perception tools.
+  | "navigate_to"
   | "explore_area"
   | "search_for"
   | "inspect"
   | "detect_failure"
   | "record_finding"
+  | "return_home"
+  | "stop_task"
   | (string & {});
 
 export interface RobotAction {
@@ -57,6 +60,21 @@ export function formatAction(a: RobotAction): string {
 }
 
 export type RunState = "idle" | "thinking" | "executing" | "done" | "error";
+export type ServiceState = "loading" | "online" | "offline";
+
+export interface ServiceStatus {
+  state: ServiceState;
+  detail: string;
+}
+
+export interface RobotTelemetry {
+  ros: ServiceStatus;
+  camera: ServiceStatus;
+  navigation: ServiceStatus;
+  agent: ServiceStatus;
+  knowledge: ServiceStatus;
+  updatedAt: string;
+}
 
 export interface ChatMessage {
   id: string;
@@ -90,6 +108,10 @@ export type BackendEvent =
   | { type: "status"; state: RunState; action?: RobotAction; detail?: string }
   /** A camera frame, as anything an <img>/<video> can take. */
   | { type: "frame"; src: string }
+  /** A periodic perception summary generated from the latest ROS detections. */
+  | { type: "scene"; summary: string; alert?: string }
+  /** Health of the local services that make up the robot stack. */
+  | { type: "telemetry"; telemetry: RobotTelemetry }
   | { type: "error"; message: string };
 
 /**

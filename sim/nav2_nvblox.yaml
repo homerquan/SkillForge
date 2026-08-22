@@ -2,7 +2,7 @@ bt_navigator:
   ros__parameters:
     use_sim_time: true
     global_frame: map
-    robot_base_frame: chassis_link
+    robot_base_frame: nova_carter
     navigators: [navigate_to_pose, navigate_through_poses]
     navigate_to_pose:
       plugin: nav2_bt_navigator::NavigateToPoseNavigator
@@ -31,9 +31,9 @@ controller_server:
       time_steps: 56
       model_dt: 0.05
       batch_size: 2000
-      vx_max: 0.45
-      vx_min: -0.25
-      wz_max: 1.5
+      vx_max: 2.40
+      vx_min: -1.20
+      wz_max: 2.4
       iteration_count: 1
       prune_distance: 1.7
       transform_tolerance: 0.3
@@ -46,7 +46,7 @@ controller_server:
 collision_monitor:
   ros__parameters:
     use_sim_time: true
-    base_frame_id: chassis_link
+    base_frame_id: nova_carter
     odom_frame_id: map
     cmd_vel_in_topic: cmd_vel_smoothed
     cmd_vel_out_topic: cmd_vel
@@ -60,7 +60,7 @@ collision_monitor:
     polygons: [SafeZone]
     SafeZone:
       type: circle
-      radius: 0.35
+      radius: 0.85
       action_type: stop
       min_points: 4
       enabled: true
@@ -91,7 +91,7 @@ behavior_server:
   ros__parameters:
     use_sim_time: true
     global_frame: map
-    robot_base_frame: chassis_link
+    robot_base_frame: nova_carter
     behavior_plugins: [spin, backup, drive_on_heading, assisted_teleop, wait]
     spin:
       plugin: nav2_behaviors::Spin
@@ -107,7 +107,7 @@ behavior_server:
 docking_server:
   ros__parameters:
     use_sim_time: true
-    base_frame: chassis_link
+    base_frame: nova_carter
     fixed_frame: map
     dock_plugins: [sim_dock]
     sim_dock:
@@ -136,10 +136,10 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: false
     feedback: OPEN_LOOP
-    max_velocity: [0.45, 0.0, 1.5]
-    min_velocity: [-0.25, 0.0, -1.5]
-    max_accel: [1.5, 0.0, 2.5]
-    max_decel: [-1.5, 0.0, -2.5]
+    max_velocity: [2.40, 0.0, 2.4]
+    min_velocity: [-1.20, 0.0, -2.4]
+    max_accel: [6.0, 0.0, 4.0]
+    max_decel: [-6.0, 0.0, -4.0]
     odom_duration: 0.1
     velocity_timeout: 1.0
 
@@ -148,10 +148,10 @@ local_costmap:
     ros__parameters:
       use_sim_time: true
       global_frame: map
-      robot_base_frame: chassis_link
+      robot_base_frame: nova_carter
       rolling_window: true
-      width: 6.0
-      height: 6.0
+      width: 6
+      height: 6
       resolution: 0.05
       transform_tolerance: 0.3
       footprint: "[[0.14, 0.25], [0.14, -0.25], [-0.607, -0.25], [-0.607, 0.25]]"
@@ -172,9 +172,9 @@ global_costmap:
     ros__parameters:
       use_sim_time: true
       global_frame: map
-      robot_base_frame: chassis_link
-      width: 60.0
-      height: 60.0
+      robot_base_frame: nova_carter
+      width: 60
+      height: 60
       origin_x: -30.0
       origin_y: -30.0
       resolution: 0.05
