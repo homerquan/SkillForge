@@ -115,6 +115,10 @@ move()  rotate()  move_arm()  open_gripper()  close_gripper()
 
 The semantic ROS 2 direction is documented in [`ROS2 Task Mapping.md`](ROS2%20Task%20Mapping.md): tasks such as `explore_area`, `search_for`, `inspect`, `detect_failure`, and `navigate_to` should express intent while ROS 2 owns the low-level control.
 
+### Knowledge retrieval with MongoDB
+
+SkillForge uses MongoDB to store and retrieve operational knowledge that the agent can use when planning tasks. For example, if the knowledge base identifies a box as fragile, the robot should avoid placing it at the bottom of a stack.
+
 ## Quick start — browser demo
 
 The browser demo runs locally with mock data; no ROS 2, Isaac Sim, GPU, or backend endpoint is required.
