@@ -16,6 +16,7 @@ import carb
 import isaacsim.core.experimental.utils.app as app_utils
 import omni
 import omni.graph.core as og
+import usdrt
 from isaacsim.core.experimental.utils.stage import is_stage_loading
 from isaacsim.core.simulation_manager import SimulationManager
 from isaacsim.storage.native import get_assets_root_path
@@ -46,6 +47,48 @@ SimulationManager.setup_simulation(dt=1.0 / 60.0, device="cpu")
 camera_graph = "/World/Nova_Carter_ROS/front_hawk"
 og.Controller.set(og.Controller.attribute(camera_graph + "/left_camera_render_product.inputs:enabled"), True)
 og.Controller.set(og.Controller.attribute(camera_graph + "/right_camera_render_product.inputs:enabled"), True)
+
+# The supplied Carter graph publishes only odom -> base_link. Publish the
+# calibrated sensor tree as well so Visual SLAM and nvblox can transform
+# camera and LiDAR measurements through the robot frame.
+robot_base = "/World/Nova_Carter_ROS/chassis_link"
+sensor_prims = [
+    "/World/Nova_Carter_ROS/chassis_link/sensors/front_hawk/left/camera_left",
+    "/World/Nova_Carter_ROS/chassis_link/sensors/front_hawk/right/camera_right",
+    "/World/Nova_Carter_ROS/chassis_link/sensors/front_3d_lidar",
+]
+stage = omni.usd.get_context().get_stage()
+missing_prims = [path for path in [robot_base, *sensor_prims] if not stage.GetPrimAtPath(path).IsValid()]
+if missing_prims:
+    carb.log_error(f"Could not publish Carter sensor transforms; missing prims: {missing_prims}")
+    simulation_app.close()
+    sys.exit(1)
+
+og.Controller.edit(
+    {"graph_path": "/SkillForgeSensorTF", "evaluator_name": "execution"},
+    {
+        og.Controller.Keys.CREATE_NODES: [
+            ("OnPlaybackTick", "omni.graph.action.OnPlaybackTick"),
+            ("ReadSimTime", "isaacsim.core.nodes.IsaacReadSimulationTime"),
+            ("ComputeTF", "isaacsim.core.nodes.IsaacComputeTransformTree"),
+            ("PublishTF", "isaacsim.ros2.bridge.ROS2PublishTransformTree"),
+        ],
+        og.Controller.Keys.SET_VALUES: [
+            ("ComputeTF.inputs:parentPrim", usdrt.Sdf.Path(robot_base)),
+            ("ComputeTF.inputs:targetPrims", [usdrt.Sdf.Path(path) for path in sensor_prims]),
+            ("PublishTF.inputs:topicName", "/tf"),
+        ],
+        og.Controller.Keys.CONNECT: [
+            ("OnPlaybackTick.outputs:tick", "ComputeTF.inputs:execIn"),
+            ("ComputeTF.outputs:execOut", "PublishTF.inputs:execIn"),
+            ("ComputeTF.outputs:parentFrames", "PublishTF.inputs:parentFrames"),
+            ("ComputeTF.outputs:childFrames", "PublishTF.inputs:childFrames"),
+            ("ComputeTF.outputs:translations", "PublishTF.inputs:translations"),
+            ("ComputeTF.outputs:orientations", "PublishTF.inputs:orientations"),
+            ("ReadSimTime.outputs:simulationTime", "PublishTF.inputs:timeStamp"),
+        ],
+    },
+)
 
 app_utils.play()
 simulation_app.update()

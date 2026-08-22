@@ -1,0 +1,34 @@
+/**:
+  ros__parameters:
+    use_sim_time: true
+    global_frame: map
+    voxel_size: 0.10
+    num_cameras: 0
+    use_tf_transforms: true
+    mapping_type: static_tsdf
+    use_color: false
+    use_depth: false
+    use_lidar: true
+    # Isaac Sim publishes one unorganized PointCloud2 row for its front LiDAR.
+    lidar_width: 41988
+    lidar_height: 1
+    lidar_min_valid_range_m: 0.10
+    use_lidar_motion_compensation: false
+    pointcloud2_timestamps_are_relative: false
+    input_qos: DEFAULT
+    tick_period_ms: 10
+    integrate_lidar_rate_hz: 20.0
+    update_esdf_rate_hz: 10.0
+    publish_layer_rate_hz: 5.0
+    map_clearing_radius_m: 15.0
+    map_clearing_frame_id: chassis_link
+    esdf_mode: 2d
+    publish_esdf_distance_slice: true
+    static_mapper:
+      lidar_projective_integrator_max_integration_distance_m: 10.0
+      esdf_slice_height: 0.10
+      esdf_slice_min_height: 0.10
+      esdf_slice_max_height: 0.65
+      esdf_integrator_min_weight: 0.1
+      esdf_integrator_max_distance_m: 2.0
+      unobserved_esdf_policy: ignore

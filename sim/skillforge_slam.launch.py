@@ -1,7 +1,7 @@
 """Visual SLAM configuration for Isaac Sim 6's Carter warehouse sample."""
 
 from launch import LaunchDescription
-from launch_ros.actions import ComposableNodeContainer, Node
+from launch_ros.actions import ComposableNodeContainer
 from launch_ros.descriptions import ComposableNode
 
 
@@ -18,10 +18,14 @@ def generate_launch_description():
                 "enable_slam_visualization": True,
                 "enable_observations_view": True,
                 "enable_landmarks_view": True,
-                "base_frame": "front_stereo_camera_left_optical",
+                "map_frame": "map",
+                "odom_frame": "odom",
+                "base_frame": "chassis_link",
+                "rig_frame": "chassis_link",
+                "enable_ground_constraint_in_odometry": True,
                 "camera_optical_frames": [
-                    "front_stereo_camera_left_optical",
-                    "front_stereo_camera_right_optical",
+                    "camera_left",
+                    "camera_right",
                 ],
             }
         ],
@@ -35,20 +39,6 @@ def generate_launch_description():
 
     return LaunchDescription(
         [
-            # Isaac Sim 6 does not publish the front stereo rig baseline.
-            # The right projection matrix exposes the 15 cm baseline used here.
-            Node(
-                package="tf2_ros",
-                executable="static_transform_publisher",
-                arguments=[
-                    "--x",
-                    "0.15",
-                    "--frame-id",
-                    "front_stereo_camera_left_optical",
-                    "--child-frame-id",
-                    "front_stereo_camera_right_optical",
-                ],
-            ),
             ComposableNodeContainer(
                 name="visual_slam_launch_container",
                 namespace="",
