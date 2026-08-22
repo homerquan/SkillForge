@@ -21,6 +21,7 @@ export default function App() {
   const [detail, setDetail] = useState<string | null>(null);
   const [frame, setFrame] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
+  const [lastInstruction, setLastInstruction] = useState<string | null>(null);
   const idRef = useRef(0);
 
   useEffect(() => {
@@ -86,7 +87,12 @@ export default function App() {
       ...m,
       { id: `u${++idRef.current}`, role: "user", text },
     ]);
+    setLastInstruction(text);
     backend.sendInstruction(text);
+  }
+
+  function clear() {
+    setMessages([]);
   }
 
   const busy = state === "thinking" || state === "executing";
@@ -103,6 +109,9 @@ export default function App() {
           busy={busy}
           onSend={send}
           onAbort={() => backend.abort()}
+          onClear={clear}
+          errorMessage={state === "error" ? detail : null}
+          onRetry={lastInstruction ? () => send(lastInstruction) : undefined}
         />
         <RobotPanel
           frame={cameraUrl ?? frame}
