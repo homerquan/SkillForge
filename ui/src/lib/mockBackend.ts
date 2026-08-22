@@ -64,6 +64,7 @@ function planActions(text: string): { reply: string; actions: RobotAction[] } {
       case "move_arm": return `move the arm to ${String(a.args?.pose).replace(/_/g, " ")}`;
       case "close_gripper": return "close the gripper";
       case "open_gripper": return "open the gripper";
+      default: return a.name.replace(/_/g, " ");
     }
   });
   return {

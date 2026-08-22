@@ -1,32 +1,35 @@
-# React + TypeScript + Vite
+# SkillForge UI
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+The UI talks to the local bridge over HTTP and receives perception summaries and rule alerts through server-sent events. The browser never connects to the OpenClaw gateway or MongoDB directly.
 
-Currently, two official plugins are available:
+## Run
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+cd ui
+npm run bridge
+VITE_SKILLFORGE_BRIDGE_URL=http://127.0.0.1:8787 \
+VITE_CAMERA_URL='http://10.0.0.167:8080/stream?topic=/front_stereo_camera/left/image_raw&type=mjpeg&width=960&height=600&quality=80' \
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+In a ROS-sourced terminal with Nav2 active, run the task executor:
+
+```bash
+python3 sim/skillforge_task_bridge.py
+```
+
+`skillforge_task_bridge.py` accepts `navigate_to`, `explore_area`, `search_for`, `inspect`, `detect_failure`, `record_finding`, `return_home`, and `stop_task` from `/skillforge/tasks`. It sends the perception/inspection intents to `/task/explore`, `/task/search`, `/task/inspect`, `/inspection/analyze`, and `/inspection/results`; Nav2 executes navigation and return-home. Update its `LOCATIONS` mapping with surveyed Isaac Sim map coordinates before operating the robot.
+
+## MongoDB Rules
+
+The bridge reads the `robot_rules` collection from `MONGODB_URI`, defaulting to `mongodb://127.0.0.1:27017/skillforge`. Rule documents can match detections through `object` or `tags`, and show an alert when `alert: true` or `action: "alarm"` is present:
+
+```javascript
+db.robot_rules.insertOne({
+  object: "colorful_box",
+  alert: true,
+  message: "Colorful box detected: activate the warehouse alarm."
+})
+```
+
+The bridge checks `/perception/detections` every 30 seconds, updates the UI scene summary, and retrieves matching safety rules before emitting an alert.

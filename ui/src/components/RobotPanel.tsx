@@ -1,4 +1,4 @@
-import { formatAction, type RobotAction, type RunState } from "../lib/types";
+import { formatAction, type RobotAction, type RobotTelemetry, type RunState, type ServiceState } from "../lib/types";
 
 interface Props {
   frame: string | null;
@@ -7,6 +7,9 @@ interface Props {
   detail: string | null;
   connected: boolean;
   backendLabel: string;
+  sceneSummary: string | null;
+  sceneAlert: string | null;
+  telemetry: RobotTelemetry | null;
 }
 
 const STATE_TEXT: Record<RunState, string> = {
@@ -24,6 +27,9 @@ export function RobotPanel({
   detail,
   connected,
   backendLabel,
+  sceneSummary,
+  sceneAlert,
+  telemetry,
 }: Props) {
   return (
     <section className="panel robot">
@@ -54,13 +60,40 @@ export function RobotPanel({
         </div>
         <div>
           <dt>Robot</dt>
-          <dd>{connected ? "Connected" : "Offline"}</dd>
+          <dd>{telemetry?.ros.state === "online" ? "Connected" : telemetry?.ros.state === "offline" ? "Offline" : "Loading"}</dd>
         </div>
       </dl>
+
+      <section className="system-health" aria-live="polite">
+        <span className="health-title">System status</span>
+        {([
+          ["ROS 2", telemetry?.ros],
+          ["Camera", telemetry?.camera],
+          ["Nav2", telemetry?.navigation],
+          ["OpenClaw", telemetry?.agent],
+          ["MongoDB", telemetry?.knowledge],
+        ] as const).map(([label, service]) => (
+          <div className="health-row" key={label} title={service?.detail ?? "Waiting for bridge telemetry"}>
+            <span className={`health-dot ${service?.state ?? "loading"}`} />
+            <span>{label}</span>
+            <strong>{labelForState(service?.state ?? "loading")}</strong>
+          </div>
+        ))}
+      </section>
+
+      <section className={`scene-summary${sceneAlert ? " alert" : ""}`} aria-live="polite">
+        <span>Scene summary</span>
+        <p>{sceneSummary ?? "Waiting for the first 30-second perception update."}</p>
+        {sceneAlert && <strong>Alert: {sceneAlert}</strong>}
+      </section>
 
       <footer className="panel-foot">
         {detail ?? `backend: ${backendLabel}`}
       </footer>
     </section>
   );
+}
+
+function labelForState(state: ServiceState): string {
+  return state === "online" ? "Online" : state === "offline" ? "Offline" : "Loading";
 }

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ConversationPanel } from "./components/ConversationPanel";
 import { RobotPanel } from "./components/RobotPanel";
 import { createBackend } from "./lib/backend";
-import type { BackendEvent, ChatMessage, RobotAction, RunState } from "./lib/types";
+import type { BackendEvent, ChatMessage, RobotAction, RobotTelemetry, RunState } from "./lib/types";
 import "./App.css";
 
 // When set, the video panel points straight at the LAN MJPEG stream from the
@@ -20,6 +20,9 @@ export default function App() {
   const [action, setAction] = useState<RobotAction | null>(null);
   const [detail, setDetail] = useState<string | null>(null);
   const [frame, setFrame] = useState<string | null>(null);
+  const [sceneSummary, setSceneSummary] = useState<string | null>(null);
+  const [sceneAlert, setSceneAlert] = useState<string | null>(null);
+  const [telemetry, setTelemetry] = useState<RobotTelemetry | null>(null);
   const [connected, setConnected] = useState(false);
   const [lastInstruction, setLastInstruction] = useState<string | null>(null);
   const idRef = useRef(0);
@@ -73,9 +76,30 @@ export default function App() {
           setFrame(e.src);
           break;
 
+        case "scene":
+          setSceneSummary(e.summary);
+          setSceneAlert(e.alert ?? null);
+          break;
+
+        case "telemetry":
+          setTelemetry(e.telemetry);
+          break;
+
         case "error":
           setState("error");
           setDetail(e.message);
+          setMessages((messages) => {
+            const pendingIndex = messages.findLastIndex((message) =>
+              message.role === "assistant" && message.pending
+            );
+            if (pendingIndex < 0) {
+              return [...messages, { id: `e${++idRef.current}`, role: "assistant", text: `OpenClaw error: ${e.message}` }];
+            }
+            return messages.map((message, index) => index === pendingIndex
+              ? { ...message, pending: false, text: message.text || `OpenClaw error: ${e.message}` }
+              : message
+            );
+          });
           break;
       }
     });
@@ -120,6 +144,9 @@ export default function App() {
           detail={detail}
           connected={connected}
           backendLabel={backend.label}
+          sceneSummary={sceneSummary}
+          sceneAlert={sceneAlert}
+          telemetry={telemetry}
         />
       </main>
     </div>

@@ -71,19 +71,22 @@ SLAM_PID=""
 VIEWER_PID=""
 DRIVE_PID=""
 NAVIGATION_PID=""
+AUTONAV_PID=""
 
 cleanup() {
     trap - EXIT INT TERM
-    for pid in "${DRIVE_PID}" "${VIEWER_PID}" "${NAVIGATION_PID}" "${SLAM_PID}" "${SIM_PID}"; do
-        if [[ -n "${pid}" ]] && kill -0 "${pid}" 2>/dev/null; then
-            kill "${pid}" 2>/dev/null || true
+    for pid in "${AUTONAV_PID}" "${DRIVE_PID}" "${VIEWER_PID}" "${NAVIGATION_PID}" "${SLAM_PID}" "${SIM_PID}"; do
+        if [[ -n "${pid}" ]]; then
+            # Each managed command has its own session, so terminate all of
+            # its descendants rather than leaving ROS nodes or Isaac Sim alive.
+            kill -- "-${pid}" 2>/dev/null || true
         fi
     done
 }
 trap cleanup EXIT INT TERM
 
 printf 'Starting Isaac Sim. Logs: %s\n' "${LOG_DIR}"
-"${ISAAC_SIM_ROOT}/python.sh" \
+setsid "${ISAAC_SIM_ROOT}/python.sh" \
     "${SIM_DIR}/run_carter_warehouse.py" \
     >"${LOG_DIR}/isaac-sim.log" 2>&1 &
 SIM_PID=$!
@@ -106,7 +109,7 @@ if ! timeout 2 ros2 topic echo --once "${IMAGE_TOPIC}" sensor_msgs/msg/Image >/d
 fi
 
 printf 'Starting Isaac ROS Visual SLAM...\n'
-ros2 launch "${SIM_DIR}/skillforge_slam.launch.py" \
+setsid ros2 launch "${SIM_DIR}/skillforge_slam.launch.py" \
     >"${LOG_DIR}/visual-slam.log" 2>&1 &
 SLAM_PID=$!
 
@@ -116,15 +119,19 @@ if [[ "${START_NAVIGATION}" == true ]]; then
         exit 1
     fi
     printf 'Starting nvblox and Nav2 with Visual SLAM localization...\n'
-    ros2 launch "${SIM_DIR}/skillforge_navigation.launch.py" \
+    setsid ros2 launch "${SIM_DIR}/skillforge_navigation.launch.py" \
         >"${LOG_DIR}/navigation.log" 2>&1 &
     NAVIGATION_PID=$!
+    printf 'Starting autonomous Nav2 route using the Visual SLAM map.\n'
+    setsid python3 "${SIM_DIR}/autonomous_navigation.py" \
+        >"${LOG_DIR}/autonomous-navigation.log" 2>&1 &
+    AUTONAV_PID=$!
 fi
 
 if [[ "${DRIVE_ROBOT}" == true ]]; then
-    printf 'Moving the Carter robot with /cmd_vel. Use --no-drive to disable this.\n'
-    ros2 topic pub --rate 10 /cmd_vel geometry_msgs/msg/Twist \
-        "{linear: {x: 0.2, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.2}}" \
+    printf 'Driving the Carter forward through the warehouse. Use --no-drive to disable this.\n'
+    setsid ros2 topic pub --rate 10 /cmd_vel geometry_msgs/msg/Twist \
+        "{linear: {x: 0.45, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.03}}" \
         >"${LOG_DIR}/robot-motion.log" 2>&1 &
     DRIVE_PID=$!
 fi
@@ -132,7 +139,7 @@ fi
 if [[ "${OPEN_VIEWER}" == true ]]; then
     if ros2 pkg prefix rqt_image_view >/dev/null 2>&1; then
         printf 'Opening the ROS image viewer for %s...\n' "${IMAGE_TOPIC}"
-        ros2 run rqt_image_view rqt_image_view "${IMAGE_TOPIC}" >"${LOG_DIR}/image-viewer.log" 2>&1 &
+        setsid ros2 run rqt_image_view rqt_image_view "${IMAGE_TOPIC}" >"${LOG_DIR}/image-viewer.log" 2>&1 &
         VIEWER_PID=$!
     else
         printf 'rqt_image_view is not installed. Run: ros2 run image_tools showimage --ros-args -r image:=%s\n' "${IMAGE_TOPIC}" >&2
@@ -142,7 +149,7 @@ fi
 printf '\nSimulation, SLAM, robot motion, navigation, and video are running. Press Ctrl-C here to stop them.\n'
 printf 'ROS image: %s\nROS SLAM pose: /visual_slam/tracking/odometry\nLogs: %s\n' "${IMAGE_TOPIC}" "${LOG_DIR}"
 if [[ "${START_NAVIGATION}" == true ]]; then
-    printf 'Send goals in RViz or with the /navigate_to_pose action.\n'
+    printf 'Nav2 will send an 8 m forward goal after the SLAM map is ready.\n'
 fi
 
 wait "${SIM_PID}"

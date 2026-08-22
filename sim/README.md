@@ -4,7 +4,7 @@
 
 1. Isaac Sim opens the Nova Carter warehouse scene used by the upstream Isaac ROS Visual SLAM tutorial and publishes stereo camera data through the ROS 2 bridge.
 2. Isaac ROS Visual SLAM subscribes to the rectified front stereo pair and publishes visual odometry, the SLAM pose, landmarks, and observations.
-3. The script publishes `cmd_vel` at 10 Hz to move the robot while SLAM runs.
+3. The script publishes a near-straight `cmd_vel` trajectory at 10 Hz so the robot visibly traverses the warehouse while SLAM runs.
 4. `rqt_image_view` displays the left camera stream in a separate window.
 
 The script uses the already-built Isaac ROS workspace at `~/workspaces/isaac_ros-dev` and Isaac Sim at `~/isaacsim`. Override either location with `ISAAC_ROS_WS` or `ISAAC_SIM_ROOT` if needed.
@@ -24,6 +24,36 @@ To start without the image viewer or automatic robot motion:
 ```bash
 ./start_sim.sh --no-viewer --no-drive
 ```
+
+## Navigation
+
+Start NVIDIA nvblox and Nav2 with Visual SLAM localization:
+
+```bash
+./start_sim.sh --navigation
+```
+
+`--navigation` disables the demo's automatic `/cmd_vel` publisher. The stack uses the following path:
+
+```text
+front stereo cameras -> Isaac ROS Visual SLAM -> map -> nova_carter TF
+front 3D LiDAR -> nvblox static costmap -> Nav2 -> /cmd_vel
+```
+
+Once Visual SLAM publishes `map` to `nova_carter` and nvblox publishes its LiDAR costmap, navigation sends an 8 m forward Nav2 goal from the robot's current SLAM pose. Nav2 plans the route through the LiDAR-derived obstacle map rather than using a fixed simulator coordinate. Use `Ctrl-C` to stop it, or send another goal in RViz after the first goal completes.
+
+The simulator publishes the calibrated Carter sensor tree from `nova_carter` to `front_stereo_camera_left_rgb`, `front_stereo_camera_right_rgb`, and `front_RPLidar`. A static `front_RPLidar` to `front_3d_lidar` alias lets nvblox consume the simulator's LiDAR topic while using the real simulated sensor pose.
+
+After startup, open `rviz2`, set the fixed frame to `map`, then use the **Nav2 Goal** tool. Check the navigation stack before sending a goal:
+
+```bash
+ros2 topic echo --once /visual_slam/tracking/odometry
+ros2 topic hz /nvblox_node/static_map_slice
+ros2 lifecycle get /controller_server
+ros2 lifecycle get /planner_server
+```
+
+Both Nav2 lifecycle commands must report `active`. The `nvblox_node` static costmap is built from `/front_3d_lidar/lidar_points`; it does not use `/chassis/odom` for navigation.
 
 ## Video
 
@@ -83,7 +113,7 @@ ros2 topic echo --once /front_stereo_camera/right/camera_info
 
 ## SLAM
 
-`skillforge_slam.launch.py` adapts the Isaac ROS Visual SLAM node to Isaac Sim 6's Carter sample. It supplies the 15 cm stereo baseline transform and uses the left camera optical frame as the SLAM base frame. It consumes:
+`skillforge_slam.launch.py` adapts Isaac ROS Visual SLAM to Isaac Sim 6's Carter sample. It uses the calibrated `nova_carter` sensor tree published by `run_carter_warehouse.py`, uses Visual SLAM's `map` frame for localization, and consumes:
 
 ```text
 /front_stereo_camera/left/image_raw
@@ -116,3 +146,4 @@ The current script publishes ROS video locally; it does not yet expose video to 
 - First launch can take several minutes while Isaac Sim compiles shaders and loads assets. The default camera readiness timeout is seven minutes. Inspect the run's `isaac-sim.log` if it expires.
 - The image viewer needs an active desktop display. Use `--no-viewer` for a headless SSH session, then view the topic from a desktop ROS session.
 - The image topic is configurable when testing a different camera: `IMAGE_TOPIC=/my/camera/image_raw ./start_sim.sh`.
+- Navigation must start a fresh Isaac Sim session because `run_carter_warehouse.py` creates the required sensor TF graph while loading the scene.

@@ -22,9 +22,10 @@ The script performs the following work:
 1. Starts `run_carter_warehouse.py`, which loads Isaac Sim's `carter_warehouse_navigation.usd` scene.
 2. Enables the front stereo camera ROS render products.
 3. Waits for `/front_stereo_camera/left/image_raw`.
-4. Starts `skillforge_slam.launch.py`.
-5. Sends `geometry_msgs/msg/Twist` commands to `/cmd_vel` at 10 Hz so the Carter robot moves while SLAM runs.
-6. Opens a local `rqt_image_view` window for the left camera.
+4. Publishes the Carter sensor transform tree for the stereo cameras and front 3D LiDAR.
+5. Starts `skillforge_slam.launch.py`.
+6. Sends `geometry_msgs/msg/Twist` commands to `/cmd_vel` at 10 Hz so the Carter robot moves while SLAM runs.
+7. Opens a local `rqt_image_view` window for the left camera.
 
 The first Isaac Sim launch can take several minutes for shader compilation and asset loading. The default readiness timeout is seven minutes. Press `Ctrl-C` in the `start_sim.sh` terminal to stop all child processes.
 
@@ -34,6 +35,7 @@ Useful options:
 ./start_sim.sh --no-viewer
 ./start_sim.sh --no-drive
 ./start_sim.sh --no-viewer --no-drive
+./start_sim.sh --navigation
 ```
 
 ## ROS Topics
@@ -53,14 +55,43 @@ Isaac Sim publishes the front stereo pair:
 
 The two camera streams are intentional: Visual SLAM uses stereo vision. It matches the same scene features in the synchronized left and right images; their fixed 15 cm separation provides depth, while consecutive stereo frames estimate robot motion.
 
-`skillforge_slam.launch.py` maps the raw left and right images to Isaac ROS Visual SLAM. Isaac Sim 6 publishes a 15 cm stereo baseline in the right camera projection matrix but does not publish that static transform, so the launch file publishes the matching left-to-right static transform.
+`run_carter_warehouse.py` publishes the Carter transform tree from `chassis_link` to the front camera and LiDAR prims. `skillforge_slam.launch.py` maps the raw stereo images to Isaac ROS Visual SLAM and uses that calibrated tree to publish a `map -> chassis_link` localization transform.
 
-SLAM uses `front_stereo_camera_left_optical` as its base frame and publishes results under `/visual_slam`, including:
+SLAM uses `chassis_link` as its base frame and publishes results under `/visual_slam`, including:
 
 ```bash
 ros2 topic echo /visual_slam/tracking/odometry
 ros2 topic list | grep visual_slam
 ```
+
+## Navigation
+
+Start autonomous goal navigation with:
+
+```bash
+cd ~/SkillForge/sim
+./start_sim.sh --navigation
+```
+
+This option disables the automatic motion publisher and runs:
+
+```text
+Stereo cameras -> Visual SLAM -> map -> chassis_link
+Front 3D LiDAR -> nvblox static costmap -> Nav2 -> /cmd_vel
+```
+
+`nvblox_node` consumes `/front_3d_lidar/lidar_points` and publishes `/nvblox_node/static_map_slice`. Nav2's local and global costmaps use NVIDIA's `nvblox::nav2::NvbloxCostmapLayer`; no navigation component consumes `/chassis/odom`.
+
+Before setting a goal in RViz, verify that Visual SLAM and Nav2 are active:
+
+```bash
+ros2 topic echo --once /visual_slam/tracking/odometry
+ros2 topic hz /nvblox_node/static_map_slice
+ros2 lifecycle get /controller_server
+ros2 lifecycle get /planner_server
+```
+
+Set RViz's fixed frame to `map` and use the **Nav2 Goal** tool. Restart Isaac Sim before first using navigation so its sensor TF graph is present.
 
 ## Local Video Viewer
 
