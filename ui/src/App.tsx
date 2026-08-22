@@ -5,6 +5,12 @@ import { createBackend } from "./lib/backend";
 import type { BackendEvent, ChatMessage, RobotAction, RunState } from "./lib/types";
 import "./App.css";
 
+// When set, the video panel points straight at the LAN MJPEG stream from the
+// GB10's web_video_server instead of whatever the backend emits as "frame"
+// events. This is deliberately independent of the conversation backend
+// (mock or real) — the two teammate-owned halves land on separate schedules.
+const cameraUrl = import.meta.env.VITE_CAMERA_URL as string | undefined;
+
 export default function App() {
   // One backend for the life of the app. Which one is decided in backend.ts.
   const backend = useMemo(() => createBackend(), []);
@@ -99,7 +105,7 @@ export default function App() {
           onAbort={() => backend.abort()}
         />
         <RobotPanel
-          frame={frame}
+          frame={cameraUrl ?? frame}
           state={state}
           action={action}
           detail={detail}

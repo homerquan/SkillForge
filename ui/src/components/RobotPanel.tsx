@@ -28,10 +28,10 @@ export function RobotPanel({
   return (
     <section className="panel robot">
       <header className="panel-head">
-        <h2>Live Robot</h2>
-        <span className={`dot ${connected ? "on" : "off"}`} title={backendLabel}>
-          {connected ? "Connected" : "Disconnected"}
-        </span>
+        <h2>
+          <span className={`dot ${connected ? "on" : ""}`} title={backendLabel} />
+          Live Robot
+        </h2>
       </header>
 
       <div className="viewport">
@@ -46,7 +46,7 @@ export function RobotPanel({
       <dl className="status">
         <div>
           <dt>Status</dt>
-          <dd className={`state ${state}`}>{STATE_TEXT[state]}</dd>
+          <dd><span className={`state ${state}`} />{STATE_TEXT[state]}</dd>
         </div>
         <div>
           <dt>Action</dt>
