@@ -6,6 +6,9 @@ interface Props {
   busy: boolean;
   onSend: (text: string) => void;
   onAbort: () => void;
+  onClear: () => void;
+  errorMessage?: string | null;
+  onRetry?: () => void;
 }
 
 const SUGGESTIONS = [
@@ -14,7 +17,7 @@ const SUGGESTIONS = [
   "Return home.",
 ];
 
-export function ConversationPanel({ messages, busy, onSend, onAbort }: Props) {
+export function ConversationPanel({ messages, busy, onSend, onAbort, onClear, errorMessage, onRetry }: Props) {
   const [draft, setDraft] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -35,10 +38,16 @@ export function ConversationPanel({ messages, busy, onSend, onAbort }: Props) {
     <section className="panel conversation">
       <header className="panel-head">
         <h2>Conversation</h2>
-        {busy && (
+        {busy ? (
           <button type="button" className="ghost" onClick={onAbort}>
             Stop
           </button>
+        ) : (
+          messages.length > 0 && (
+            <button type="button" className="ghost" onClick={onClear}>
+              Clear
+            </button>
+          )
         )}
       </header>
 
@@ -70,6 +79,16 @@ export function ConversationPanel({ messages, busy, onSend, onAbort }: Props) {
             )}
           </article>
         ))}
+        {errorMessage && (
+          <div className="error-card" role="alert">
+            <p>{errorMessage}</p>
+            {onRetry && (
+              <button type="button" className="ghost" onClick={onRetry}>
+                Retry
+              </button>
+            )}
+          </div>
+        )}
         <div ref={endRef} />
       </div>
 
