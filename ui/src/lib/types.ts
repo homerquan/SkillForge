@@ -7,24 +7,51 @@
  * component should need to.
  */
 
-/** The robot's action vocabulary, from SPEC.md. */
+/**
+ * The robot's action vocabulary.
+ *
+ * SPEC.md described an arm/gripper set (move, rotate, move_arm,
+ * open_gripper, close_gripper). The stack actually shipped a Nav2 mobile-base
+ * toolset (get_robot_pose, navigate_to_pose, spin_robot, dock_robot, ...)
+ * plus semantic perception tools (explore_area, search_for, inspect,
+ * detect_failure, record_finding), surfaced over MCP with a server prefix
+ * like `nav2__get_robot_pose`. The names are therefore open-ended: the union
+ * below documents what we know while `(string & {})` keeps any real tool
+ * name valid, so the UI never has to change when a tool is added.
+ */
 export type ActionName =
+  // Original SPEC.md vocabulary — still used by the mock backend.
   | "move"
   | "rotate"
   | "move_arm"
   | "open_gripper"
-  | "close_gripper";
+  | "close_gripper"
+  // Nav2 tools exposed by nav2_mcp_server.
+  | "get_robot_pose"
+  | "navigate_to_pose"
+  | "spin_robot"
+  | "backup_robot"
+  | "dock_robot"
+  | "undock_robot"
+  | "cancel_navigation"
+  // Semantic perception tools.
+  | "explore_area"
+  | "search_for"
+  | "inspect"
+  | "detect_failure"
+  | "record_finding"
+  | (string & {});
 
 export interface RobotAction {
   name: ActionName;
   /** Free-form so the UI does not have to change when arguments do. */
-  args?: Record<string, string | number>;
+  args?: Record<string, unknown>;
 }
 
 /** Rendered verbatim in the status panel. */
 export function formatAction(a: RobotAction): string {
   const args = Object.entries(a.args ?? {})
-    .map(([k, v]) => `${k}=${v}`)
+    .map(([k, v]) => `${k}=${typeof v === "object" && v !== null ? JSON.stringify(v) : String(v)}`)
     .join(", ");
   return `${a.name}(${args})`;
 }

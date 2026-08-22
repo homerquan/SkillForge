@@ -20,16 +20,16 @@
  * taken directly from the OpenClaw source (github.com/openclaw/openclaw,
  * packages/gateway-protocol and packages/gateway-client), not guessed.
  *
- * TOOL INTEGRATION IS DELIBERATELY NOT IMPLEMENTED YET. The real robot
- * control is Nav2-based (navigate_to_pose, spin_robot, dock_robot, etc. via
- * nav2_mcp_server) plus not-yet-built semantic actions (explore_area,
- * search_for, inspect...) — NOT the move/rotate/move_arm/gripper vocabulary
- * this UI's RobotAction type currently models. That type will need reworking
- * once the team locks the semantic-action schema.
+ * Tool integration is wired: robot actions arrive on the `agent` event's
+ * "tool" stream (see handleAgentEvent), covering both the Nav2 mobile-base
+ * tools and the semantic perception tools. Their event shape is not in
+ * OpenClaw's public docs, so it was captured live from the running gateway
+ * and is documented at handleAgentEvent rather than guessed.
  */
 
 import {
   DEFAULT_GATEWAY_REQUEST_TIMEOUT_MS,
+  GATEWAY_CLIENT_CAPS,
   GatewayBrowserDeviceAuthLifecycle,
   GatewayProtocolClient,
   type GatewayBrowserDeviceAuthPlan,
@@ -53,6 +53,20 @@ const CLIENT = {
 } as const;
 
 const DEFAULT_SCOPES = ["operator.read", "operator.write"] as const;
+
+/** Shape captured live from the gateway; see handleAgentEvent. */
+type AgentEventPayload = {
+  runId?: string;
+  stream?: "assistant" | "lifecycle" | "tool" | "item" | string;
+  data?: {
+    phase?: string;
+    name?: string;
+    toolCallId?: string;
+    args?: Record<string, unknown>;
+    isError?: boolean;
+    result?: unknown;
+  };
+};
 
 function createBrowserSocket(url: string, handlers: GatewayProtocolSocketHandlers): GatewayProtocolSocket {
   const ws = new WebSocket(url);
@@ -118,6 +132,10 @@ export function createRealBackend(url: string, token: string): Backend {
       scopes: plan.scopes,
       device: plan.device,
       auth: plan.auth,
+      // Tool events are opt-in: without advertising these the gateway sends
+      // chat deltas but never the tool/action frames, so the robot ACTION
+      // readout stays empty. A cap advertises support, not authorization.
+      caps: [GATEWAY_CLIENT_CAPS.TOOL_EVENTS, GATEWAY_CLIENT_CAPS.SESSION_SCOPED_EVENTS],
     }),
 
     onConnectHello: (hello, context) => {
@@ -133,6 +151,9 @@ export function createRealBackend(url: string, token: string): Backend {
     onClose: () => emit?.({ type: "connection", connected: false }),
 
     onEvent: (frame) => {
+      if (frame.event === "agent") {
+        handleAgentEvent(frame.payload as AgentEventPayload);
+      }
       if (frame.event === "chat") {
         handleChatEvent(frame.payload as Record<string, unknown>);
       }
@@ -141,8 +162,53 @@ export function createRealBackend(url: string, token: string): Backend {
     onCallbackError: (label, err) => console.error(`gateway callback error (${label})`, err),
   });
 
+  /**
+   * Robot actions arrive on the `agent` event's "tool" stream, not the `chat`
+   * event. Shape captured live from the running gateway:
+   *
+   *   { runId, sessionKey, agentId, seq, ts, stream: "tool", data: {
+   *       phase: "start",  name: "nav2__get_robot_pose", toolCallId, args }}
+   *   { ..., data: { phase: "result", name, toolCallId, isError, result: {
+   *       content: [...], details: { mcpServer, mcpTool, structuredContent }}}}
+   *
+   * `name` is MCP-prefixed (`<server>__<tool>`); the result phase also carries
+   * clean `details.mcpServer` / `details.mcpTool`. We display the unprefixed
+   * tool name and keep the prefix out of the UI.
+   */
+  function handleAgentEvent(payload: AgentEventPayload) {
+    if (!emit || payload.stream !== "tool") return;
+    const data = payload.data;
+    if (!data?.name) return;
+
+    const toolName = data.name.includes("__") ? data.name.split("__").slice(1).join("__") : data.name;
+    const action = { name: toolName, args: data.args };
+
+    if (data.phase === "start") {
+      // Tools run BEFORE the agent narrates them, so the assistant turn does
+      // not exist yet on the first tool call. Open it here, keyed by runId, so
+      // the action pills attach to the turn that produced them and the later
+      // chat deltas stream into that same bubble instead of a second one.
+      if (!activeMessageId && payload.runId) {
+        activeRunId = payload.runId;
+        activeMessageId = payload.runId;
+        emit({ type: "assistant_start", id: activeMessageId });
+      }
+      if (activeMessageId) emit({ type: "action", id: activeMessageId, action });
+      emit({ type: "status", state: "executing", action });
+      return;
+    }
+
+    if (data.phase === "result") {
+      if (data.isError) {
+        emit({ type: "status", state: "error", action, detail: `${toolName} failed` });
+      } else {
+        emit({ type: "status", state: "executing", action, detail: `${toolName} ok` });
+      }
+    }
+  }
+
   // Maps the ChatEventSchema union (state: status | delta | final | aborted |
-  // error) onto our BackendEvent contract. See file header re: tool events.
+  // error) onto our BackendEvent contract.
   function handleChatEvent(payload: Record<string, unknown>) {
     if (!emit) return;
     const runId = payload.runId as string | undefined;
